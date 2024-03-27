@@ -1,6 +1,7 @@
 const AuthSchema = require('../models/Auth.models.js');
 const { hashPassword, comparePassword } = require('../utils/auth.js');
 const { generateToken } = require('../services/authService');
+
 const nodemailer = require('nodemailer')
 
 exports.register = async (req, res) => {
@@ -86,19 +87,40 @@ exports.resetPassword = async (req, res) => {
         res.status(500).json({message: 'Something went wrong, Try again later'});
       }
       res.status(200).json({message: 'Email sent successfully '+info.response})
-
-
     })
-
-
-
-    // send an email with the reset link containing the reset code
-    // const url = `${process.env.CLIENT_URL}/auth/set-new-password?code=${resetCode}`;
-    // const subject = "Reset your password";
 
   } catch (error) {
     console.log({ message: error.message });
   }
 }
 
+
+
+exports.verifyOtp = async (req, res) => {
+  const {otp} = req.params.otp;
+  const {password} = req.body;
+
+  const user = await AuthSchema.findOne({
+    resetPasswordToke: otp,
+    resetPasswordExpires: {$gt: Date.now()}
+  });
+
+  if(!user){
+    res.status(404).json({message: 'Invalid OTP password reset link or it has expired.'});
+  }
+
+  const encPassword = await hashPassword(password);
+  user.password = encPassword;
+  user.resetPasswordExpires = null;
+  user.resetPasswordToke = null
+
+
+  try{
+    await user.save();
+    res.status(201).json(user);
+  }catch(e){
+    res.status(400).json({message: e.message});
+  }
+
+};
 
