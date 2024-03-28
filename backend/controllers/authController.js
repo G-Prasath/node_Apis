@@ -2,12 +2,15 @@ const AuthSchema = require('../models/Auth.models.js');
 const { hashPassword, comparePassword } = require('../utils/auth.js');
 const { generateToken } = require('../services/authService');
 
-const nodemailer = require('nodemailer')
+const nodemailer = require('nodemailer');
+const session = require('express-session');
 
+
+/** Registration API */
 exports.register = async (req, res) => {
   try {
     const { name, email, password } = req.body
-    const isExists = await AuthSchema.findOne({email: email});
+    const isExists = await AuthSchema.findOne({ email: email });
 
     if (!isExists) {
       const encPassword = await hashPassword(password);
@@ -24,6 +27,7 @@ exports.register = async (req, res) => {
   }
 }
 
+/** Login API */
 exports.login = async (req, res) => {
   const { email, password } = req.body;
   const user = await AuthSchema.findOne({ email });
@@ -51,21 +55,25 @@ exports.login = async (req, res) => {
   });
 }
 
+/** Reset Password API */
 exports.resetPassword = async (req, res) => {
   try {
-    const {email} = req.body;
+    const { email } = req.body;
     // check if the user exist in database
-    const user = await AuthSchema.findOne({email});
-    
-    if(!user){
-        throw new Error("Email does not exist");
+    const user = await AuthSchema.findOne({ email });
+
+    if (!user) {
+      throw new Error("Email does not exist");
     }
 
     // create a random reset code and save it to the user's document
     const resetCode = Math.random().toString(36).slice(-8);
-    user.resetPasswordToke = resetCode;
-    user.resetPasswordExpires = new Date(Date.now() + 3600000); // expire in one
+    
+    user.resetPasswordToken = resetCode;
+    user.resetPasswordExpires = Date.now() + 2 * 60 * 1000 // 5 min expire in one
     user.save();
+
+    console.log(user);
 
     const transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -83,10 +91,10 @@ exports.resetPassword = async (req, res) => {
     }
 
     transporter.sendMail(message, (err, info) => {
-      if(err){
-        res.status(500).json({message: 'Something went wrong, Try again later'});
+      if (err) {
+        res.status(500).json({ message: 'Something went wrong, Try again later' });
       }
-      res.status(200).json({message: 'Email sent successfully '+info.response})
+      res.status(200).json({ message: 'Email sent successfully ' + info.response })
     })
 
   } catch (error) {
@@ -94,33 +102,37 @@ exports.resetPassword = async (req, res) => {
   }
 }
 
-
-
+/** Verify OTP */
 exports.verifyOtp = async (req, res) => {
-  const {otp} = req.params.otp;
-  const {password} = req.body;
+  const { otp } = req.params;
+  const { password } = req.body;
 
   const user = await AuthSchema.findOne({
-    resetPasswordToke: otp,
-    resetPasswordExpires: {$gt: Date.now()}
+    resetPasswordToken: otp,
+    resetPasswordExpires: { $gt: Date.now() }
   });
 
-  if(!user){
-    res.status(404).json({message: 'Invalid OTP password reset link or it has expired.'});
+  if (!user) {
+    res.status(404).json({ message: 'Invalid OTP password reset link or it has expired.' });
+  }else{
+    const encPassword = await hashPassword(password);
+    user.password = encPassword;
+    user.resetPasswordToken = null;
+    user.resetPasswordExpires = null;
+  
+    try {
+      await user.save();
+      res.status(201).json(user);
+    } catch (e) {
+      res.status(400).json({ message: e.message });
+    }
   }
 
-  const encPassword = await hashPassword(password);
-  user.password = encPassword;
-  user.resetPasswordExpires = null;
-  user.resetPasswordToke = null
+};
 
-
-  try{
-    await user.save();
-    res.status(201).json(user);
-  }catch(e){
-    res.status(400).json({message: e.message});
-  }
-
+/** Logout User */
+exports.logout = async (req, res) => {
+  session.Cookie.set('test', '1234')
+  console.log(session.Cookie.test);;
 };
 
